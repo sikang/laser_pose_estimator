@@ -38,3 +38,4 @@ rosbuild_add_executable(laser_pose_estimator src/laser_height_estimator.cpp
                                              src/laser_pose_estimator_node.cpp)
 target_link_libraries(laser_pose_estimator pose_utils csm_utils gtsam)
 target_link_libraries(laser_pose_estimator ${OpenCV_LIBS})
+rosbuild_add_executable(init_imu src/init_imu.cpp)
