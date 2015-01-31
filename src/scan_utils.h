@@ -9,7 +9,7 @@
 #include <sensor_msgs/PointCloud.h>
 
 // Cut the 'mirror' part of laser scan, downsample to meet resolution, project to common ground frame, also return the cutted and downsampled scan for republish
-arma::mat preprocess_scan(double height, const sensor_msgs::LaserScan& scan, double resolution, arma::colvec ypr, sensor_msgs::LaserScan& lscan, sensor_msgs::PointCloud& rcloud);
+arma::mat preprocess_scan(double height, const sensor_msgs::LaserScan& scan, double resolution, arma::colvec ypr, sensor_msgs::LaserScan& lscan);
 
 // Compute scan covariance based on fisher's imformation matrix
 arma::mat cov_fisher(const arma::mat& scan, bool& isCovValid);

@@ -10,16 +10,17 @@
 #include "slam_2d.h"
 #include "laser_height_estimator.h"
 #include <std_msgs/Empty.h>
-#include <omnimapper_msgs/LaserOdom.h>
+
+#include <csm_utils/scan_utils.hpp>
+
 // ROS Variables
 ros::Publisher pubOdom;
 ros::Publisher pubHeight;
 ros::Publisher pubScan;
 ros::Publisher pubSubmap;
-ros::Publisher laserOdomPub;
 
 // Scan data 
-arma::mat                     scan;
+arma::mat                  scan;
 sensor_msgs::LaserScan  scanOut;
 ros::Time               tScan;
 bool                    isScan   = false;
@@ -29,7 +30,8 @@ bool                    isHeight = false;
 LaserHeightEstimator laserHeightEstimator;
 // 2D SLAM 
 SLAM2D SLAM2D;
-sensor_msgs::LaserScan current_scan_;
+
+laser_slam::ScanUtils scan_utils;
 
 void scan_callback(const sensor_msgs::LaserScan::ConstPtr& msg)
 {
@@ -37,16 +39,41 @@ void scan_callback(const sensor_msgs::LaserScan::ConstPtr& msg)
   laserHeightEstimator.ProcessScan(*msg);
   tHeight = msg->header.stamp;
 
-  sensor_msgs::PointCloud cloud_raw;
-  cloud_raw.header.stamp = msg->header.stamp;
-  cloud_raw.header.frame_id = std::string("map");
-
   // Horizontal scan
-  scan  = preprocess_scan(laserHeightEstimator.GetHeight(), *msg, SLAM2D.get_resolution(), laserHeightEstimator.GetImuOrientation(), scanOut, cloud_raw);
-  current_scan_ = *msg;
+  scan = preprocess_scan(laserHeightEstimator.GetHeight(), *msg, SLAM2D.get_resolution(), laserHeightEstimator.GetImuOrientation(), scanOut);
   tScan = msg->header.stamp;
   if (scan.n_cols > 0)
     isScan = true;
+
+  // CSM
+  if(!SLAM2D.use_csm_)
+    return;
+
+  double laser_height, laser_height_cov;
+
+  sensor_msgs::LaserScan scan_out = scan_utils.scan_filter(*msg, laser_height, laser_height_cov);
+  if(laser_height_cov > 0.1)
+    ROS_WARN_THROTTLE(1, "Laser height = %f, cov = %f", laser_height, laser_height_cov);
+
+  sensor_msgs::PointCloud cloud = scan_utils.scan_to_cloud(scan_out, M_PI/4);
+  cloud.header = msg->header;
+
+  Eigen::Matrix3d R;
+  arma::colvec ypr = laserHeightEstimator.GetImuOrientation();
+  R(0,0) = cos(ypr(1));
+  R(0,1) = sin(ypr(2))*sin(ypr(1));
+  R(0,2) = cos(ypr(2))*sin(ypr(1));
+  R(1,0) = 0;
+  R(1,1) = cos(ypr(2));
+  R(1,2) = -sin(ypr(2));
+  R(2,0) = -sin(ypr(1));
+  R(2,1) = sin(ypr(2))*cos(ypr(1));
+  R(2,2) = cos(ypr(2))*cos(ypr(1));
+
+
+  sensor_msgs::PointCloud cloud2d = scan_utils.project_cloud(R, cloud);
+  sensor_msgs::PointCloud curr_cloud = scan_utils.down_sample_cloud(cloud2d, 0.05);
+  SLAM2D.set_ldp(curr_cloud);
 }
 
 void odom_callback(const nav_msgs::Odometry::ConstPtr& msg)
@@ -101,11 +128,6 @@ void publish_pose(string frame_id)
   odom.pose.covariance[5+5*6] = 0.03*0.03;
   pubOdom.publish(odom);
 
-  omnimapper_msgs::LaserOdom laser_odom;
-  laser_odom.header = current_scan_.header;
-  laser_odom.scan = current_scan_;
-  laser_odom.odom = odom;
-  laserOdomPub.publish(laser_odom);
   // Also publish scan, Encode pose information in intensities
   scanOut.header.frame_id = string("/llaser");
   scanOut.intensities.clear();
@@ -121,7 +143,7 @@ void publish_pose(string frame_id)
   scanOut.intensities.push_back(0);                                      // 9
   scanOut.header.stamp = tScan;
   pubScan.publish(scanOut);
-}
+ }
 
 void publish_submap(string frame_id)
 {
@@ -180,6 +202,25 @@ int main(int argc, char** argv)
   }
   ros::Subscriber save_sub = n.subscribe("save_callback", 1, save_callback);
 
+  SLAM2D.init_scan_matcher(n);
+
+  int idx_width, idx_middle, height_idx_low, height_idx_up, min_ang_idx;
+  double min_theta, range_theta;
+
+  n.param("idx_width", idx_width, 38);
+  n.param("idx_middle", idx_middle, 968);
+  n.param("height_idx_low", height_idx_low, 0);
+  n.param("height_idx_up", height_idx_up, 10);
+  n.param("min_ang_idx", min_ang_idx, 0);
+  n.param("min_theta", min_theta, -M_PI/2);
+  n.param("range_theta", range_theta, M_PI*7/4);
+
+  scan_utils.init_scan_filter(idx_width, idx_middle,
+                              height_idx_low, height_idx_up,
+                              min_theta, range_theta,
+                              min_ang_idx);
+
+
   // Set map resolution
   double resolution = 0.05;
   n.param("resolution", resolution, 0.05);
@@ -195,7 +236,6 @@ int main(int argc, char** argv)
   pubHeight = n.advertise<nav_msgs::Odometry>(     "height", 10);
   pubScan   = n.advertise<sensor_msgs::LaserScan>( "scan" , 100);
   pubSubmap = n.advertise<nav_msgs::OccupancyGrid>("dmap" ,  10);
-  laserOdomPub = n.advertise<omnimapper_msgs::LaserOdom>("laser_odom" ,  10);
 
   ros::Rate r(1000.0);
   while(n.ok())

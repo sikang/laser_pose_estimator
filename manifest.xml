@@ -17,6 +17,7 @@
   <depend package="pose_utils"/>
   <depend package="quadrotor_msgs"/>
   <depend package="omnimapper_msgs"/>
+  <depend package="laser_slam"/>
 </package>
 
 

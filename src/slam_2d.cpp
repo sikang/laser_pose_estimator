@@ -28,6 +28,7 @@ SLAM2D::SLAM2D()
   submap->origin = 0;
   cvSetZero(submap);
   offsetSubmap = arma::zeros<arma::colvec>(2);
+  first_match_ = true;
   
   cvNamedWindow("map window");
 }
@@ -36,6 +37,22 @@ SLAM2D::SLAM2D()
 SLAM2D::~SLAM2D()
 {
   cvReleaseImage(&map);
+}
+
+
+void SLAM2D::init_scan_matcher(ros::NodeHandle& n)
+{
+  n.param("use_csm", use_csm_, false);
+  if(use_csm_)
+  {
+    ROS_WARN("CSM_ENABLED!");
+    scan_matcher.initParams(n);
+  }
+}
+
+void SLAM2D::set_ldp(const sensor_msgs::PointCloud& cloud)
+{
+  scan_matcher.pointCloudToLDP(cloud, curr_ldp);
 }
 
 /* ******************** Set Parameters ******************** */
@@ -134,6 +151,8 @@ void SLAM2D::prediction()
   // Prediction
   arma::colvec x = arma::zeros<arma::colvec>(6);
   arma::colvec u = arma::zeros<arma::colvec>(6);
+
+  prevPose = currPose;
   x(0) = currPose(0);
   x(1) = currPose(1);
   x(3) = currPose(2);
@@ -195,10 +214,34 @@ bool SLAM2D::localization()
       }
     }
   }
-  // Pick maximum likehood
   currPose(0) += bestX;
   currPose(1) += bestY;
   currPose(2) += bestA;
+
+
+  if(use_csm_){
+    if(first_match_){
+      first_match_ = false;
+    }
+    else{
+      gtsam::Pose2 prev_pose(prevPose(0), prevPose(1), prevPose(2));
+      gtsam::Pose2 curr_pose(currPose(0), currPose(1), currPose(2));
+
+      gtsam::Pose2 predicted_pose = prev_pose.between(curr_pose);
+
+      gtsam::Pose2 pose_diff;
+      gtsam::Matrix noise_matrix;
+      scan_matcher.processScan2D(curr_ldp, prev_ldp, predicted_pose, pose_diff, noise_matrix);
+      curr_pose = prev_pose.compose(pose_diff);
+
+      currPose(0) = curr_pose.x();
+      currPose(1) = curr_pose.y();
+      currPose(2) = curr_pose.theta();
+    }
+    prev_ldp = curr_ldp;
+  }
+  // Pick maximum likehood
+
   // Determine scans that hitting obstacle in the map
   vector<arma::colvec> scanObsVect;
   double c = cos(currPose(2));

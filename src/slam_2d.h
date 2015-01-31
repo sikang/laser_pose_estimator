@@ -1,11 +1,12 @@
 #ifndef SLAM_2D_H
 #define SLAM_2D_H
-
+#include <ros/ros.h>
 #include <iostream>
 #include "opencv/cv.h"
 #include "opencv/highgui.h"
 #include "scan_utils.h"
 #include "pose_utils.h"
+#include <csm_utils/canonical_scan.h>
 
 struct MapInfo
 {
@@ -24,6 +25,7 @@ class SLAM2D
     // Instant Sensor data and state
     arma::mat       currScan;
     arma::colvec    diffOdom;
+    arma::colvec    prevPose;
     arma::colvec    currPose;
     // Current covariance matrix
     arma::mat cov;
@@ -48,9 +50,17 @@ class SLAM2D
     bool localization();
     void mapping();
 
+    laser_slam::CanonicalScan scan_matcher;
+    LDP curr_ldp;
+    LDP prev_ldp;
+    bool first_match_;
+
   public:
     SLAM2D();
     ~SLAM2D();
+    void init_scan_matcher(ros::NodeHandle& n);
+    void set_ldp(const sensor_msgs::PointCloud& cloud);
+
     bool update_slam(const arma::mat& scan, const arma::colvec& odom);								        // Main update
     void set_resolution(double _res);
     void set_pose(double x, double y, double z);
@@ -59,6 +69,7 @@ class SLAM2D
     const arma::colvec  get_pose();					                                        		// Get current pose in 6*1 vector format
     const arma::mat     get_covariance();					                                      // Get current covariance matrix (6*6)
     const MapInfo get_submap(vector<signed char>& probMap);                       // Return Submap in ROS(?) Format 
+    bool use_csm_;
 };
 
 #endif

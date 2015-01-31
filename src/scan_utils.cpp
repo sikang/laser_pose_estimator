@@ -1,6 +1,6 @@
 #include "scan_utils.h"
 
-arma::mat preprocess_scan(double height, const sensor_msgs::LaserScan& scan, double resolution, arma::colvec ypr, sensor_msgs::LaserScan& lscan, sensor_msgs::PointCloud& rcloud)
+arma::mat preprocess_scan(double height, const sensor_msgs::LaserScan& scan, double resolution, arma::colvec ypr, sensor_msgs::LaserScan& lscan)
 {
   // Cut laser scan
   lscan = scan;
@@ -37,16 +37,11 @@ arma::mat preprocess_scan(double height, const sensor_msgs::LaserScan& scan, dou
       p(2) = 0;
       pw = R*p + h;
       if( pw(2) > -0.01 ){
-        geometry_msgs::Point32 point;
-        point.x = p(0);//pw(0);
-        point.y = p(1);//pw(1);
-        point.z = p(2);//pw(2);
-        rcloud.points.push_back(point);
-
         lscan.ranges.push_back((scan.ranges[curr_idx] < lscan.range_max)?scan.ranges[curr_idx]:lscan.range_max);
       }
       else
-        lscan.ranges.push_back(lscan.range_max);
+        lscan.ranges.push_back(std::numeric_limits<float>::quiet_NaN());
+        //lscan.ranges.push_back(lscan.range_max);
 
    }
     else
