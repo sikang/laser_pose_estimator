@@ -15,7 +15,6 @@
 
 // ROS Variables
 ros::Publisher pubOdom;
-ros::Publisher pubHeight;
 ros::Publisher pubScan;
 ros::Publisher pubSubmap;
 
@@ -25,12 +24,13 @@ sensor_msgs::LaserScan  scanOut;
 ros::Time               tScan;
 bool                    isScan   = false;
 ros::Time               tHeight;
-bool                    isHeight = false;
+
+
 // Laser Height Estimator 
 LaserHeightEstimator laserHeightEstimator;
 // 2D SLAM 
 SLAM2D SLAM2D;
-
+// Scan Filters
 laser_slam::ScanUtils scan_utils;
 
 void scan_callback(const sensor_msgs::LaserScan::ConstPtr& msg)
@@ -216,6 +216,8 @@ int main(int argc, char** argv)
 
   scan_utils.init_scan_utils(scan_info);
 
+  std::string world_frame;
+  n.param("world_frame", world_frame, std::string("map"));
 
   SLAM2D.set_resolution(scan_info.res);
   SLAM2D.set_loc_map_ratio(4);
@@ -226,7 +228,6 @@ int main(int argc, char** argv)
   ros::Subscriber sub4 = n.subscribe("sim_odom_in", 10, odom_callback, ros::TransportHints().udp());
   // Output
   pubOdom   = n.advertise<nav_msgs::Odometry>(     "odom" ,  10);
-  pubHeight = n.advertise<nav_msgs::Odometry>(     "height", 10);
   pubScan   = n.advertise<sensor_msgs::LaserScan>( "scan" , 100);
   pubSubmap = n.advertise<nav_msgs::OccupancyGrid>("dmap" ,  10);
 
@@ -248,32 +249,14 @@ int main(int argc, char** argv)
       // SLAM
       if (SLAM2D.update_slam(scan, diffOdom)) // SLAM success, publish 6-DOF pose
       {
-        publish_pose(string("/map"));
-        publish_submap(string("/map"));
+        publish_pose(string(world_frame));
+        publish_submap(string(world_frame));
       }
       else                                    // SLAM failed, publish null for pose odom
       {
         publish_pose(string("null"));
         publish_submap(string("null"));
       }
-    }
-    // Publish height
-    if (isHeight)
-    {
-      isHeight = false;
-      nav_msgs::Odometry height;
-      height.header.frame_id = (laserHeightEstimator.IsLaserHeight())?string("height"):string("null");
-      height.header.stamp    = tHeight;
-      height.pose.pose.position.z    = laserHeightEstimator.GetHeight();
-      height.twist.twist.linear.z    = laserHeightEstimator.GetLaserHeight();
-      height.pose.covariance[2+2*6]  = 0.05*0.05;
-      height.twist.covariance[2+2*6] = 0.05*0.05;
-      arma::colvec q = R_to_quaternion(ypr_to_R(laserHeightEstimator.GetImuOrientation()));
-      height.pose.pose.orientation.w = q(0);
-      height.pose.pose.orientation.x = q(1);
-      height.pose.pose.orientation.y = q(2);
-      height.pose.pose.orientation.z = q(3);
-      pubHeight.publish(height);
     }
     r.sleep();
   }
