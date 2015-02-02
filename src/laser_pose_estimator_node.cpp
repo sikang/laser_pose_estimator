@@ -11,7 +11,7 @@
 #include "laser_height_estimator.h"
 #include <std_msgs/Empty.h>
 
-#include <csm_utils/scan_utils.hpp>
+#include <csm_utils/scan_utils.h>
 
 // ROS Variables
 ros::Publisher pubOdom;
@@ -55,7 +55,7 @@ void scan_callback(const sensor_msgs::LaserScan::ConstPtr& msg)
   if(laser_height_cov > 0.1)
     ROS_WARN_THROTTLE(1, "Laser height = %f, cov = %f", laser_height, laser_height_cov);
 
-  sensor_msgs::PointCloud cloud = scan_utils.scan_to_cloud(scan_out, M_PI/4);
+  sensor_msgs::PointCloud cloud = scan_utils.scan_to_cloud(scan_out);
   cloud.header = msg->header;
 
   Eigen::Matrix3d R;
@@ -72,7 +72,7 @@ void scan_callback(const sensor_msgs::LaserScan::ConstPtr& msg)
 
 
   sensor_msgs::PointCloud cloud2d = scan_utils.project_cloud(R, cloud);
-  sensor_msgs::PointCloud curr_cloud = scan_utils.down_sample_cloud(cloud2d, 0.05);
+  sensor_msgs::PointCloud curr_cloud = scan_utils.down_sample_cloud(cloud2d);
   SLAM2D.set_ldp(curr_cloud);
 }
 
@@ -204,27 +204,20 @@ int main(int argc, char** argv)
 
   SLAM2D.init_scan_matcher(n);
 
-  int idx_width, idx_middle, height_idx_low, height_idx_up, min_ang_idx;
-  double min_theta, range_theta;
+  laser_slam::ScanUtils::ScanInfo scan_info;
 
-  n.param("idx_width", idx_width, 38);
-  n.param("idx_middle", idx_middle, 968);
-  n.param("height_idx_low", height_idx_low, 0);
-  n.param("height_idx_up", height_idx_up, 10);
-  n.param("min_ang_idx", min_ang_idx, 0);
-  n.param("min_theta", min_theta, -M_PI/2);
-  n.param("range_theta", range_theta, M_PI*7/4);
+  n.param("idx_width", scan_info.idx_width, 38);
+  n.param("idx_middle", scan_info.idx_middle, 968);
+  n.param("height_idx_low", scan_info.height_idx_low, 0);
+  n.param("height_idx_up", scan_info.height_idx_up, 10);
+  n.param("min_ang_idx", scan_info.min_ang_idx, 0);
+  n.param("shift_yaw", scan_info.shift_yaw, M_PI/4);
+  n.param("resolution", scan_info.res, 0.05);
 
-  scan_utils.init_scan_filter(idx_width, idx_middle,
-                              height_idx_low, height_idx_up,
-                              min_theta, range_theta,
-                              min_ang_idx);
+  scan_utils.init_scan_utils(scan_info);
 
 
-  // Set map resolution
-  double resolution = 0.05;
-  n.param("resolution", resolution, 0.05);
-  SLAM2D.set_resolution(resolution);
+  SLAM2D.set_resolution(scan_info.res);
   SLAM2D.set_loc_map_ratio(4);
   // Input
   ros::Subscriber sub1 = n.subscribe("scan_in", 10, scan_callback, ros::TransportHints().udp());
